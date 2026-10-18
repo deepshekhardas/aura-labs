@@ -1,0 +1,99 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    match /labs/{labId} {
+      // Allow reading and writing own lab setup
+      allow read: if isSignedIn() && request.auth.uid == labId;
+      allow create: if isSignedIn() && request.auth.uid == labId;
+      allow update: if isSignedIn() && request.auth.uid == labId;
+      allow delete: if false;
+
+      match /samples/{sampleId} {
+        function isValidSample(data) {
+          return data.keys().hasAll(['localId', 'patient', 'type', 'time', 'priority', 'createdAt']) &&
+            data.localId is string && data.localId.size() <= 100 &&
+            data.patient is string && data.patient.size() <= 200 &&
+            data.type is string && data.type.size() <= 100 &&
+            data.time is string && data.time.size() <= 50 &&
+            data.priority is string && data.priority in ['Routine', 'STAT', 'ASAP'] &&
+            data.createdAt is number;
+        }
+
+        allow read, list: if isSignedIn() && request.auth.uid == labId;
+        allow create: if isSignedIn() && request.auth.uid == labId && isValidId(sampleId) && isValidSample(incoming());
+        allow update: if isSignedIn() && request.auth.uid == labId && isValidSample(incoming()) && incoming().createdAt == existing().createdAt;
+        allow delete: if isSignedIn() && request.auth.uid == labId;
+      }
+
+      match /temperatureLogs/{logId} {
+        function isValidTempLog(data) {
+          return data.keys().hasAll(['unitId', 'unitName', 'targetTemp', 'currentTemp', 'recordedBy', 'createdAt', 'date']) &&
+            data.unitId is string && data.unitId.size() <= 100 &&
+            data.unitName is string && data.unitName.size() <= 200 &&
+            data.targetTemp is string && data.targetTemp.size() <= 50 &&
+            data.currentTemp is string && data.currentTemp.size() <= 50 &&
+            data.recordedBy is string && data.recordedBy.size() <= 128 &&
+            data.date is string && data.date.size() <= 50 &&
+            data.createdAt is number;
+        }
+
+        allow read, list: if isSignedIn() && request.auth.uid == labId;
+        allow create: if isSignedIn() && request.auth.uid == labId && isValidId(logId) && isValidTempLog(incoming());
+        allow update: if isSignedIn() && request.auth.uid == labId && isValidTempLog(incoming()) && incoming().createdAt == existing().createdAt;
+        allow delete: if isSignedIn() && request.auth.uid == labId;
+      }
+
+      match /cleaningLogs/{logId} {
+      	function isValidCleaningLog(data) {
+        	return data.keys().hasAll(['taskId', 'taskName', 'completedAt', 'completedBy']) &&
+            data.taskId is string && data.taskId.size() <= 100 &&
+            data.taskName is string && data.taskName.size() <= 200 &&
+            data.completedBy is string && data.completedBy.size() <= 128 &&
+            data.completedAt is number;
+        }
+
+        allow read, list: if isSignedIn() && request.auth.uid == labId;
+        allow create: if isSignedIn() && request.auth.uid == labId && isValidId(logId) && isValidCleaningLog(incoming());
+        allow update: if false; // Logs are immutable
+        allow delete: if isSignedIn() && request.auth.uid == labId;
+      }
+
+      match /assets/{assetId} {
+        function isValidAsset(data) {
+          return data.keys().hasAll(['name', 'type', 'status']) &&
+            data.name is string && data.name.size() <= 200 &&
+            data.type is string && data.type.size() <= 100 &&
+            data.status is string && data.status in ['Operational', 'Due Soon', 'Overdue', 'Needs Repair'] &&
+            data.get('lastMaintenance', '') is string &&
+            data.get('nextMaintenance', '') is string;
+        }
+
+        allow read, list: if isSignedIn() && request.auth.uid == labId;
+        allow create: if isSignedIn() && request.auth.uid == labId && isValidId(assetId) && isValidAsset(incoming());
+        allow update: if isSignedIn() && request.auth.uid == labId && isValidAsset(incoming());
+        allow delete: if isSignedIn() && request.auth.uid == labId;
+      }
+    }
+  }
+}
